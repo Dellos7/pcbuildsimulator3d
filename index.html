@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulador 3D de montaje de ordenadores</title>
+<link rel="stylesheet" href="css/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">🖥️</span>
+    <div>
+      <strong>Simulador de montaje de PC</strong>
+      <small>Monta el equipo pieza a pieza y comprueba si es compatible</small>
+    </div>
+  </div>
+  <nav class="actions">
+    <button id="btn-check" class="btn btn-primary">✔️ Comprobar compatibilidad</button>
+    <button id="btn-save" class="btn">💾 Guardar</button>
+    <button id="btn-open" class="btn">📂 Abrir</button>
+    <button id="btn-reset" class="btn btn-danger">🗑️ Reiniciar</button>
+    <button id="btn-help" class="btn btn-ghost" title="Cómo se usa">❓</button>
+  </nav>
+</header>
+
+<main class="layout">
+
+  <!-- ------------------------------------------------ MENÚ DE COMPONENTES -->
+  <aside class="panel panel-left">
+    <div class="panel-head">
+      <h2>Componentes</h2>
+      <input id="search" type="search" placeholder="Buscar (socket, DDR5, ATX…)" autocomplete="off">
+    </div>
+    <div id="catalog" class="scroll"></div>
+    <p class="hint">Arrastra una pieza al centro, o pulsa <b>+</b> para montarla.</p>
+  </aside>
+
+  <!-- ------------------------------------------------------ SIMULADOR 3D -->
+  <section class="stage" id="stage">
+    <div id="canvas" class="canvas"></div>
+
+    <div class="stage-overlay" id="empty-hint">
+      <div class="empty-card">
+        <h3>Aquí se monta el ordenador</h3>
+        <p>Empieza por la <b>caja</b> y la <b>placa base</b>, y ve arrastrando el resto de piezas.</p>
+      </div>
+    </div>
+
+    <div class="drop-overlay" id="drop-overlay"><span>Suelta la pieza para montarla</span></div>
+
+    <div class="viewbar">
+      <label class="viewctl" title="Separa las piezas para verlas mejor">
+        <span>Vista despiezada</span>
+        <input id="explode" type="range" min="0" max="1" step="0.01" value="0">
+      </label>
+      <button id="btn-camera" class="btn btn-small">🎥 Centrar vista</button>
+    </div>
+
+    <div id="tooltip3d" class="tooltip3d" hidden></div>
+  </section>
+
+  <!-- --------------------------------------------------- MONTAJE ACTUAL -->
+  <aside class="panel panel-right">
+    <div class="panel-head">
+      <h2>Montaje actual</h2>
+      <div class="totals">
+        <span><b id="total-parts">0</b> piezas</span>
+        <span><b id="total-price">0 €</b></span>
+        <span title="Consumo estimado"><b id="total-watts">0 W</b></span>
+      </div>
+    </div>
+    <div id="buildlist" class="scroll"></div>
+    <div id="check-summary" class="check-summary" hidden></div>
+  </aside>
+
+</main>
+
+<!-- ------------------------------------------------------------- DIÁLOGOS -->
+<dialog id="modal" class="modal">
+  <div class="modal-head">
+    <h3 id="modal-title"></h3>
+    <button class="btn btn-ghost" id="modal-close">✕</button>
+  </div>
+  <div class="modal-body" id="modal-body"></div>
+  <div class="modal-foot" id="modal-foot"></div>
+</dialog>
+
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
