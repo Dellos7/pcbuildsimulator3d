@@ -184,11 +184,17 @@ h2, h3 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
 .bitem .bi-txt { flex: 1; min-width: 0; }
 .bitem .bi-name { font-weight: 600; font-size: 13px; line-height: 1.25; }
 .bitem .bi-sum { color: var(--muted); font-size: 11.8px; }
-.bitem .bi-del {
+.bitem .bi-del, .bitem .bi-eye {
   border: 0; background: none; color: var(--muted); font-size: 15px; cursor: pointer;
-  border-radius: 6px; padding: 2px 6px;
+  border-radius: 6px; padding: 2px 6px; line-height: 1;
 }
 .bitem .bi-del:hover { background: var(--err-bg); color: var(--err); }
+.bitem .bi-eye { font-size: 13px; opacity: .55; }
+.bitem .bi-eye:hover { background: var(--accent-soft); opacity: 1; }
+.bitem .bi-eye.off { opacity: 1; }
+/* Pieza escondida del 3D: sigue montada, pero se marca en la lista. */
+.bitem.hiddenpart .bi-name, .bitem.hiddenpart .bi-sum { opacity: .45; }
+.bitem.hiddenpart { border-style: dashed; }
 
 .empty-list { padding: 26px 18px; text-align: center; color: var(--muted); }
 

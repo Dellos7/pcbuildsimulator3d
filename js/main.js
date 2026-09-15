@@ -155,6 +155,14 @@ function renderBuildList(build) {
       if (flagged.has(comp.name)) row.classList.add('flagged');
       const txt = el('div', 'bi-txt');
       txt.append(el('div', 'bi-name', comp.name), el('div', 'bi-sum', shortSummary(comp)));
+      const oculta = store.isHidden(item.uid);
+      const eye = el('button', 'bi-eye', oculta ? '🙈' : '👁');
+      eye.title = oculta ? 'Volver a mostrar la pieza en el 3D' : 'Ocultar la pieza en el 3D (sigue montada)';
+      if (oculta) eye.classList.add('off');
+      eye.addEventListener('click', ev => {
+        ev.stopPropagation();
+        store.toggleHidden(item.uid);
+      });
       const del = el('button', 'bi-del', '✕');
       del.title = 'Quitar del montaje';
       del.addEventListener('click', ev => {
@@ -162,7 +170,8 @@ function renderBuildList(build) {
         store.remove(item.uid);
         toast(comp.name + ' desmontado');
       });
-      row.append(txt, del);
+      row.append(txt, eye, del);
+      if (oculta) row.classList.add('hiddenpart');
       row.addEventListener('click', () => selectItem(item.uid));
       root.append(row);
     }
@@ -416,6 +425,7 @@ store.subscribe(build => {
 
   renderBuildList(build);
   scene.render(build);
+  scene.setHidden(store.getHidden());
   scene.setSelected(selectedUid);
 });
 

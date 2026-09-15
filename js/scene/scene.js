@@ -7,6 +7,7 @@ import * as THREE from '../../vendor/three.module.min.js';
 import { OrbitControls } from '../../vendor/OrbitControls.js';
 import { BY_ID } from '../data/catalog.js';
 import { computeLayout, createPart } from './parts.js';
+import { studioEnvironment } from './materials.js';
 
 const ACCENT = new THREE.Color('#1d6fe0');
 
@@ -15,11 +16,16 @@ export function initScene(container, hooks = {}) {
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Curva de exposición fotográfica: sin ella los metales se queman en blanco.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.9;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#eef2f8');
-  scene.fog = new THREE.Fog('#eef2f8', 120, 260);
+  scene.fog = new THREE.Fog('#eef2f8', 140, 280);
+  // Reflejos de estudio: es lo que distingue el aluminio del plástico gris.
+  scene.environment = studioEnvironment(renderer);
 
   const camera = new THREE.PerspectiveCamera(42, 1, 0.5, 500);
   const HOME = { pos: new THREE.Vector3(52, 30, 62), target: new THREE.Vector3(0, 2, 0) };
@@ -33,20 +39,25 @@ export function initScene(container, hooks = {}) {
   controls.maxPolarAngle = Math.PI * 0.52;
   controls.target.copy(HOME.target);
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xc8d2e0, 2.0));
-  const key = new THREE.DirectionalLight(0xffffff, 1.9);
-  key.position.set(45, 60, 40);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xc4cede, 0.55));
+  const key = new THREE.DirectionalLight(0xfff6ea, 1.6);
+  key.position.set(45, 62, 40);
   key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.mapSize.set(2048, 2048);
   key.shadow.camera.near = 10;
-  key.shadow.camera.far = 200;
-  const s = 60;
+  key.shadow.camera.far = 220;
+  key.shadow.bias = -0.0009;
+  key.shadow.normalBias = 0.05;
+  const s = 55;
   Object.assign(key.shadow.camera, { left: -s, right: s, top: s, bottom: -s });
   key.shadow.camera.updateProjectionMatrix();
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+  const fill = new THREE.DirectionalLight(0xe8f0ff, 0.45);
   fill.position.set(-40, 25, -30);
   scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffffff, 0.35);
+  rim.position.set(-10, 18, 55);
+  scene.add(rim);
 
   // Suelo y rejilla de referencia.
   const floor = new THREE.Mesh(new THREE.CircleGeometry(120, 64),
@@ -65,6 +76,7 @@ export function initScene(container, hooks = {}) {
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let hovered = null, selectedUid = null, explode = 0, parts = [], userMovedCamera = false;
+  let hidden = new Set();
 
   // ------------------------------------------------------------ reconstruir
   function render(build, opts = {}) {
@@ -102,9 +114,12 @@ export function initScene(container, hooks = {}) {
         ctx.indexByKind = (nthKind[k] = (nthKind[k] ?? -1) + 1);
       }
       if (c.cat === 'expansion') ctx.slotIndex = slotCursor++;
+      ctx.build = { case: caseComp, mb: mbComp, gpu: gpuComp };
       const g = createPart(c, L, ctx);
       g.userData.uid = item.uid;
       g.userData.name = c.name;
+      g.userData.cat = c.cat;
+      g.visible = !hidden.has(item.uid);
       rig.add(g);
       parts.push(g);
     }
@@ -119,6 +134,12 @@ export function initScene(container, hooks = {}) {
 
     applyExplode();
     applySelection();
+  }
+
+  /** Oculta piezas sin quitarlas del montaje (para poder mirar dentro). */
+  function setHidden(uids) {
+    hidden = uids instanceof Set ? uids : new Set(uids);
+    for (const g of parts) g.visible = !hidden.has(g.userData.uid);
   }
 
   function applyExplode() {
@@ -143,22 +164,32 @@ export function initScene(container, hooks = {}) {
   function applySelection() {
     for (const g of parts) {
       const on = g.userData.uid === selectedUid;
-      tint(g, on ? ACCENT : null, 0.55);
+      tint(g, on ? ACCENT : null, 0.30);
     }
   }
 
   function setSelected(uid) { selectedUid = uid; applySelection(); }
 
+  /**
+   * Devuelve la pieza que hay bajo el ratón. La caja se deja para el final:
+   * como envuelve todo el montaje, si contara como un impacto normal sería
+   * imposible pinchar en las piezas de dentro.
+   */
   function pick(ev) {
     const r = renderer.domElement.getBoundingClientRect();
     pointer.x = ((ev.clientX - r.left) / r.width) * 2 - 1;
     pointer.y = -((ev.clientY - r.top) / r.height) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects(parts, true);
-    if (!hits.length) return null;
-    let o = hits[0].object;
-    while (o && !o.userData.uid) o = o.parent;
-    return o || null;
+    const hits = raycaster.intersectObjects(parts.filter(p => p.visible), true);
+    let box = null;
+    for (const hit of hits) {
+      let o = hit.object;
+      while (o && !o.userData.uid) o = o.parent;
+      if (!o) continue;
+      if (o.userData.cat === 'case') { box = box || o; continue; }
+      return o;
+    }
+    return box;
   }
 
   renderer.domElement.addEventListener('pointermove', ev => {
@@ -166,7 +197,7 @@ export function initScene(container, hooks = {}) {
     if (g === hovered) { hooks.onHoverMove?.(ev); return; }
     if (hovered && hovered.userData.uid !== selectedUid) tint(hovered, null);
     hovered = g;
-    if (hovered && hovered.userData.uid !== selectedUid) tint(hovered, ACCENT, 0.25);
+    if (hovered && hovered.userData.uid !== selectedUid) tint(hovered, ACCENT, 0.10);
     renderer.domElement.style.cursor = g ? 'pointer' : 'grab';
     hooks.onHover?.(g ? { uid: g.userData.uid, name: g.userData.name } : null, ev);
   });
@@ -175,8 +206,17 @@ export function initScene(container, hooks = {}) {
     hovered = null;
     hooks.onHover?.(null);
   });
+  // Sólo es un clic si el puntero casi no se ha movido: así girar la cámara
+  // arrastrando no cambia la pieza seleccionada.
+  let downAt = null;
   renderer.domElement.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0) return;
+    downAt = ev.button === 0 ? { x: ev.clientX, y: ev.clientY } : null;
+  });
+  renderer.domElement.addEventListener('pointerup', ev => {
+    if (!downAt) return;
+    const moved = Math.hypot(ev.clientX - downAt.x, ev.clientY - downAt.y);
+    downAt = null;
+    if (moved > 5) return;
     const g = pick(ev);
     hooks.onSelect?.(g ? g.userData.uid : null);
   });
@@ -209,5 +249,5 @@ export function initScene(container, hooks = {}) {
     renderer.render(scene, camera);
   })();
 
-  return { render, setSelected, setExplode, resetCamera };
+  return { render, setSelected, setExplode, setHidden, resetCamera };
 }

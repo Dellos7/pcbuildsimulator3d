@@ -10,6 +10,9 @@ const SAVED_KEY = 'pcsim3d.guardados';
 let build = { items: [] };
 const listeners = new Set();
 let seq = 0;
+// Piezas ocultas en el 3D. Es sólo una ayuda para mirar dentro del montaje:
+// la pieza sigue montada, cuenta para el precio y para la comprobación.
+const hidden = new Set();
 
 function uid() {
   seq += 1;
@@ -23,6 +26,15 @@ function emit() {
 
 export function subscribe(fn) { listeners.add(fn); fn(build); return () => listeners.delete(fn); }
 export function getBuild() { return build; }
+
+export function isHidden(itemUid) { return hidden.has(itemUid); }
+export function getHidden() { return hidden; }
+export function toggleHidden(itemUid) {
+  if (hidden.has(itemUid)) hidden.delete(itemUid); else hidden.add(itemUid);
+  emit();
+  return hidden.has(itemUid);
+}
+export function showAll() { hidden.clear(); emit(); }
 
 export function countOf(cat) {
   return build.items.filter(i => BY_ID[i.compId].cat === cat).length;
@@ -59,15 +71,18 @@ export function add(compId) {
 
 export function remove(itemUid) {
   build.items = build.items.filter(i => i.uid !== itemUid);
+  hidden.delete(itemUid);
   emit();
 }
 
 export function clear() {
   build.items = [];
+  hidden.clear();
   emit();
 }
 
 export function replaceItems(items) {
+  hidden.clear();
   build.items = items.filter(i => BY_ID[i.compId]).map(i => ({ uid: uid(), compId: i.compId }));
   emit();
 }
