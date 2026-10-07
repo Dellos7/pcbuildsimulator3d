@@ -8,6 +8,7 @@ import { OrbitControls } from '../../vendor/OrbitControls.js';
 import { BY_ID } from '../data/catalog.js';
 import { computeLayout, createPart } from './parts.js';
 import { studioEnvironment } from './materials.js';
+import { allocateExpansion } from '../data/connectivity.js';
 
 const ACCENT = new THREE.Color('#1d6fe0');
 
@@ -15,7 +16,7 @@ export function initScene(container, hooks = {}) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   // Curva de exposición fotográfica: sin ella los metales se queman en blanco.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
@@ -82,13 +83,16 @@ export function initScene(container, hooks = {}) {
   function render(build, opts = {}) {
     explode = opts.explode ?? explode;
     while (rig.children.length) {
-      const c = rig.children.pop();
+      const c = rig.children[0];
+      rig.remove(c);
       c.traverse(o => {
         if (o.geometry) o.geometry.dispose();
         if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
       });
     }
     parts = [];
+    hovered = null;
+    hooks.onHover?.(null);
 
     const comp = id => BY_ID[id];
     const items = build.items;
@@ -96,6 +100,8 @@ export function initScene(container, hooks = {}) {
     const mbComp = items.map(i => comp(i.compId)).find(c => c.cat === 'motherboard') || null;
     const gpuComp = items.map(i => comp(i.compId)).find(c => c.cat === 'gpu') || null;
     const L = computeLayout(caseComp, mbComp);
+    const expansions = items.map(i => comp(i.compId)).filter(c => c.cat === 'expansion');
+    const allocation = allocateExpansion(mbComp, gpuComp, expansions);
 
     // Índices por categoría (para repartir módulos de RAM, discos, ranuras…).
     const nth = {}, nthKind = {};
@@ -113,7 +119,7 @@ export function initScene(container, hooks = {}) {
         const k = c.specs.kind;
         ctx.indexByKind = (nthKind[k] = (nthKind[k] ?? -1) + 1);
       }
-      if (c.cat === 'expansion') ctx.slotIndex = slotCursor++;
+      if (c.cat === 'expansion') ctx.slotIndex = allocation.assignments.get(index)?.index ?? slotCursor++;
       ctx.build = { case: caseComp, mb: mbComp, gpu: gpuComp };
       const g = createPart(c, L, ctx);
       g.userData.uid = item.uid;
@@ -127,19 +133,16 @@ export function initScene(container, hooks = {}) {
     // Centramos el montaje sobre el origen para que la órbita sea cómoda.
     rig.position.set(-(L.caseX0 + L.box.w / 2), 0, -L.box.d / 2);
     rig.userData.centerY = L.box.h / 2;
-    const target = new THREE.Vector3(0, L.box.h * 0.42, 0);
-    HOME.target.copy(target);
-    HOME.pos.set(L.box.w * 2.4 + 20, L.box.h * 0.78, L.box.d * 0.95);
-    if (!userMovedCamera) { controls.target.copy(target); camera.position.copy(HOME.pos); }
-
     applyExplode();
     applySelection();
+    fitCamera(!userMovedCamera);
   }
 
   /** Oculta piezas sin quitarlas del montaje (para poder mirar dentro). */
   function setHidden(uids) {
     hidden = uids instanceof Set ? uids : new Set(uids);
     for (const g of parts) g.visible = !hidden.has(g.userData.uid);
+    fitCamera(!userMovedCamera);
   }
 
   function applyExplode() {
@@ -149,7 +152,29 @@ export function initScene(container, hooks = {}) {
     }
   }
 
-  function setExplode(v) { explode = v; applyExplode(); }
+  function setExplode(v) { explode = v; applyExplode(); fitCamera(true, true); }
+
+  // Ajusta la esfera que contiene las piezas, también en móvil y con monitor/despiece.
+  // Preserva la dirección elegida por el usuario al mover el deslizador.
+  function fitCamera(apply = true, preserveDirection = false) {
+    rig.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    for (const g of parts) if (g.visible) bounds.expandByObject(g);
+    if (bounds.isEmpty()) bounds.setFromCenterAndSize(new THREE.Vector3(0, 20, 0), new THREE.Vector3(22, 40, 40));
+    const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+    const vertical = THREE.MathUtils.degToRad(camera.fov / 2);
+    const horizontal = Math.atan(Math.tan(vertical) * camera.aspect);
+    const distance = Math.max(35, sphere.radius / Math.sin(Math.min(vertical, horizontal)) * 1.12);
+    const direction = preserveDirection ? camera.position.clone().sub(controls.target).normalize() : new THREE.Vector3(1.5, 0.35, 1).normalize();
+    HOME.target.copy(sphere.center);
+    HOME.pos.copy(sphere.center).addScaledVector(direction, distance);
+    controls.maxDistance = Math.max(180, distance * 2);
+    camera.far = Math.max(500, distance * 4);
+    scene.fog.near = distance + sphere.radius * 2;
+    scene.fog.far = camera.far;
+    camera.updateProjectionMatrix();
+    if (apply) { controls.target.copy(HOME.target); camera.position.copy(HOME.pos); controls.update(); }
+  }
 
   // -------------------------------------------------------- selección/hover
   function tint(group, color, intensity) {
@@ -225,6 +250,7 @@ export function initScene(container, hooks = {}) {
 
   function resetCamera() {
     userMovedCamera = false;
+    fitCamera(true);
     camera.position.copy(HOME.pos);
     controls.target.copy(HOME.target);
     controls.update();
@@ -236,14 +262,17 @@ export function initScene(container, hooks = {}) {
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    fitCamera(true, true);
   }
   new ResizeObserver(resize).observe(container);
   resize();
 
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   (function loop() {
     requestAnimationFrame(loop);
-    const dt = clock.getDelta();
+    timer.update();
+    const dt = Math.min(timer.getDelta(), 0.05);
     rig.traverse(o => { if (o.userData.isFan) o.rotation.z += dt * 6; });
     controls.update();
     renderer.render(scene, camera);

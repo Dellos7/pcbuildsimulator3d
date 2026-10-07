@@ -157,7 +157,7 @@ export const pinsTexture = (cols, rows) => cache('pins:' + cols + 'x' + rows, ()
   }, { clamp: true }));
 
 /** Puertos del panel trasero de la placa base, con sus colores habituales. */
-export const rearIoTexture = wifi => cache('io:' + wifi, () => makeTex(128, 460, (x, w, h) => {
+export const rearIoTexture = (wifi, ports = []) => cache('io:' + wifi + ':' + ports.join(','), () => makeTex(128, 460, (x, w, h) => {
   x.fillStyle = '#1b1f26'; x.fillRect(0, 0, w, h);
   const port = (y, hh, col) => {
     x.fillStyle = '#0b0d11'; x.fillRect(14, y - 3, w - 28, hh + 6);
@@ -173,7 +173,12 @@ export const rearIoTexture = wifi => cache('io:' + wifi, () => makeTex(128, 460,
   port(144, 22, '#1f5ea8');
   port(194, 22, '#11212e');      // USB 2.0
   port(228, 22, '#11212e');
-  port(278, 30, '#111418');      // HDMI / DisplayPort
+  ports.forEach((p, i) => {
+    const y = 267 + i * 17;
+    port(y, 13, p === 'VGA' ? '#2865b3' : p === 'DVI-D' ? '#d7dde3' : '#111418');
+    x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.font = '10px sans-serif';
+    x.fillText(p === 'DisplayPort' ? 'DP' : p, w / 2, y + 11);
+  });
   port(328, 34, '#1c2430');      // RJ-45
   const jack = (cx, col) => {    // jacks de audio
     x.fillStyle = col; x.beginPath(); x.arc(cx, 412, 13, 0, 7); x.fill();

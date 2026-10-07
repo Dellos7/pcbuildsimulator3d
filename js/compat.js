@@ -6,6 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { BY_ID } from './data/catalog.js';
+import { allocateExpansion, describePorts, describeSlots, portLabel } from './data/connectivity.js';
 
 /** Consumo aproximado de cada unidad de almacenamiento, en vatios. */
 const STORAGE_W = { nvme: 8, 'sata-ssd': 3, hdd: 9 };
@@ -40,7 +41,7 @@ export function estimatePower(build) {
   }
   const fans = comps(build, 'fan');
   const cooler = one(build, 'cooler');
-  let fanCount = fans.length + (cooler ? cooler.specs.fans : 0);
+  let fanCount = fans.length + (cooler ? cooler.specs.fans : cpu?.specs.includedCooler ? 1 : 0);
   if (fanCount) { const w = Math.round(fanCount * 2.5); total += w; rows.push([fanCount + ' ventilador(es)', w]); }
   if (cooler && cooler.specs.radiator) { total += 5; rows.push(['Bomba de la refrigeración líquida', 5]); }
   const odd = one(build, 'optical');
@@ -50,7 +51,8 @@ export function estimatePower(build) {
 
   // Margen del 40 %: picos de consumo, envejecimiento y eficiencia de la fuente.
   const recommended = Math.max(300, Math.ceil((total * 1.4) / 50) * 50);
-  return { total, recommended, rows };
+  const monitor = one(build, 'monitor');
+  return { total, recommended, rows, external: monitor?.specs.watts || 0 };
 }
 
 export function totalPrice(build) {
@@ -74,6 +76,7 @@ export function checkBuild(build) {
   const fans = comps(build, 'fan');
   const exps = comps(build, 'expansion');
   const odd = one(build, 'optical');
+  const monitor = one(build, 'monitor');
   const power = estimatePower(build);
 
   // ------------------------------------------------------ 1. Piezas que faltan
@@ -87,11 +90,13 @@ export function checkBuild(build) {
   if (!cooler && cpu && !cpu.specs.includedCooler) missing.push('el sistema de refrigeración de la CPU');
   if (missing.length) {
     out.push(issue('warning', 'El montaje está incompleto',
-      'Para que el ordenador arranque todavía falta ' + missing.join(', ') + '.'));
+      'Para completar la torre todavía falta ' + missing.join(', ') + '. Añade esas piezas y vuelve a comprobar.'));
   } else {
     out.push(issue('ok', 'No falta ninguna pieza esencial',
       'El montaje tiene todos los componentes mínimos para funcionar.'));
   }
+  if (!monitor) out.push(issue('warning', 'Falta una pantalla para utilizar el equipo',
+    'La torre puede encender sin monitor, pero para ver la imagen necesitas una pantalla y una conexión de vídeo compatible. Añade un monitor y elige dónde conectarlo.'));
   if (cooler && cpu && cpu.specs.includedCooler) {
     out.push(issue('info', 'Disipador de serie',
       cpu.name + ' ya incluye disipador, así que ' + cooler.name + ' es opcional (aunque suele refrigerar mejor).',
@@ -264,11 +269,49 @@ export function checkBuild(build) {
       out.push(issue('error', 'No hay salida de vídeo',
         cpu.name + ' no lleva gráfica integrada y no has puesto tarjeta gráfica. El ordenador encendería, ' +
         'pero el monitor se quedaría en negro.', [cpu.name]));
-    } else {
+    } else if (mb && mb.specs.videoPorts.length) {
       out.push(issue('ok', 'Habrá imagen sin tarjeta gráfica',
         cpu.name + ' incluye ' + cpu.specs.igpu + ', así que puedes usar las salidas de vídeo de la placa.',
         [cpu.name]));
     }
+  }
+
+  if (monitor) {
+    const video = build.video || { source: '', port: '' };
+    const source = video.source === 'gpu' ? gpu : video.source === 'motherboard' ? mb : null;
+    if (!video.source || !video.port) {
+      out.push(issue('warning', 'Elige la conexión de la pantalla',
+        'Selecciona placa base o tarjeta gráfica y el cable en «Conexión de pantalla». Compara las salidas de esa pieza con las entradas del monitor: ' + describePorts(monitor.specs.videoPorts) + '.', [monitor.name]));
+    }
+    if (video.source && !source) {
+      out.push(issue('error', 'La pantalla está conectada a una pieza que falta',
+        'Has elegido ' + (video.source === 'gpu' ? 'la tarjeta gráfica' : 'la placa base') + ', pero no está montada. Añádela o cambia la conexión.', [monitor.name]));
+    }
+    if (video.source === 'motherboard' && mb && (!cpu || !cpu.specs.igpu)) {
+      out.push(issue('error', 'Los puertos de la placa base no generan vídeo por sí solos',
+        (cpu ? cpu.name + ' no tiene gráfica integrada.' : 'No hay CPU montada.') +
+        ' Aunque veas un puerto HDMI, VGA o DisplayPort en la placa, necesita una CPU con gráfica integrada. ' +
+        (gpu ? 'Conecta el monitor a la tarjeta gráfica y elige un puerto que compartan.' : 'Usa una CPU con gráfica integrada o añade una tarjeta gráfica.'), [mb.name, monitor.name, ...(cpu ? [cpu.name] : [])]));
+    }
+    if (source && video.port) {
+      const outputOk = source.specs.videoPorts.includes(video.port);
+      const inputOk = monitor.specs.videoPorts.includes(video.port);
+      if (!outputOk || !inputOk) {
+        out.push(issue('error', 'El cable de vídeo no coincide con los puertos',
+          'Has elegido ' + portLabel(video.port) + '. ' + source.name + ' ofrece ' + describePorts(source.specs.videoPorts) +
+          ' y ' + monitor.name + ' recibe ' + describePorts(monitor.specs.videoPorts) +
+          '. Elige un conector común o cambia la pantalla o la salida. VGA es analógico; HDMI, DP y DVI-D son digitales. Los adaptadores no se simulan: no basta con cambiar la forma del enchufe.', [source.name, monitor.name]));
+      } else if (video.source === 'gpu' || (cpu?.specs.igpu && cpu.specs.socket === mb.specs.socket)) {
+        out.push(issue('ok', 'Conexión de pantalla compatible',
+          'Conecta un cable ' + portLabel(video.port) + ' desde ' + source.name + ' a ' + monitor.name +
+          (video.source === 'gpu' ? '. Usa los puertos de la tarjeta gráfica.' : '. La CPU genera la imagen y la placa proporciona el conector.') +
+          ' Se comprueba el conector; la resolución y los Hz dependen también de las versiones del puerto y del cable.', [source.name, monitor.name]));
+      }
+    }
+    out.push(issue('info', 'La pantalla se alimenta por separado',
+      'Sus ' + monitor.specs.watts + ' W aproximados se toman de la red eléctrica, no de la fuente de la torre. Su precio sí cuenta en el equipo.', [monitor.name]));
+    if (gpu && video.source === 'motherboard' && cpu?.specs.igpu) out.push(issue('info', 'Estás usando la gráfica integrada',
+      'Si quieres aprovechar ' + gpu.name + ', conecta la pantalla a ella. El uso simultáneo de las salidas de la placa puede requerir activar la gráfica integrada en la BIOS.', [gpu.name, mb?.name].filter(Boolean)));
   }
 
   // -------------------------------------------- 8. Fuente de alimentación
@@ -329,7 +372,7 @@ export function checkBuild(build) {
   }
 
   // -------------------------------------------------- 9. Almacenamiento
-  if (storages.length && mb) {
+  if ((storages.length || odd) && mb) {
     const nvme = storages.filter(s => s.specs.kind === 'nvme');
     if (nvme.length > mb.specs.m2Slots) {
       out.push(issue('error', 'No hay ranuras M.2 suficientes',
@@ -375,15 +418,20 @@ export function checkBuild(build) {
 
   // ----------------------------------------------- 11. Tarjetas de expansión
   if (exps.length && mb) {
-    if (exps.length > mb.specs.pcieSmall) {
+    const allocation = allocateExpansion(mb, gpu, exps);
+    if (allocation.unplaced.length) {
       out.push(issue('error', 'No hay ranuras PCIe suficientes',
-        'Has puesto ' + exps.length + ' tarjeta(s) de expansión y ' + mb.name + ' tiene ' +
-        mb.specs.pcieSmall + ' ranura(s) PCIe pequeñas libres.', [mb.name]));
+        'No se pueden colocar: ' + allocation.unplaced.map(c => c.name + ' (' + c.specs.slotType + ')').join(', ') +
+        '. La placa tiene ' + describeSlots(mb.specs.pcieSlots) + '. Una tarjeta x4 no entra en una ranura x1; una tarjeta x1 sí entra en una x4 o x16 libre. ' +
+        (gpu ? 'La gráfica ocupa su ranura y puede tapar las contiguas. ' : '') +
+        (mb.specs.legacyPci ? 'Las ranuras PCI antiguas no son PCIe. ' : '') + 'Quita una tarjeta o elige una placa con ranuras apropiadas.', [mb.name, ...allocation.unplaced.map(c => c.name)]));
     }
-    if (gpu && gpu.specs.slots >= 3) {
-      out.push(issue('warning', 'La gráfica tapa ranuras de expansión',
-        gpu.name + ' ocupa ' + gpu.specs.slots + ' ranuras de altura, así que cubre las ranuras PCIe ' +
-        'que tiene justo debajo. Comprueba que las tarjetas caben.', [gpu.name]));
+    for (const [index, slot] of allocation.assignments) {
+      const exp = exps[index];
+      const need = Number(exp.specs.slotType.match(/x(\d+)/)?.[1] || 1);
+      if (slot.lanes < need) out.push(issue('warning', 'La ranura limita el ancho de banda',
+        exp.name + ' cabe físicamente en la ranura x' + slot.size + ', pero ésta sólo tiene ' + slot.lanes +
+        ' líneas eléctricas. La tarjeta pide x' + need + '; usa una ranura con más líneas para evitar limitarla.', [mb.name, exp.name]));
     }
   }
   if (exps.length && mb && mb.specs.wifi && exps.some(e => e.id === 'exp-wifi6')) {

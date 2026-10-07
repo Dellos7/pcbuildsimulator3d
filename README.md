@@ -35,6 +35,40 @@ en `index.html`**: hace falta servirla desde un servidor web (aunque sea local).
   pulsar el botón se explican, una a una, las incompatibilidades y los avisos.
 - **Guardar / Abrir / Reiniciar:** los montajes se guardan con nombre en el propio
   navegador (localStorage). Además, el montaje en curso se recupera al recargar.
+- **Monitor:** añade una pantalla y elige la salida (placa o gráfica) y el cable
+  en el panel derecho. Se comparan HDMI, DisplayPort, D-SUB/VGA y DVI-D. Las
+  salidas de la placa necesitan una CPU con gráfica integrada. Los adaptadores
+  y los límites de resolución/Hz no se simulan.
+- **Pistas / Mis decisiones:** tras comprobar, abre las pistas para corregir los
+  errores y escribe tus explicaciones. Se conservan con el montaje.
+- **Exportar / Importar:** intercambia JSON con piezas, conexión y explicaciones.
+  La importación valida el archivo (máximo 128 KB), muestra una vista previa y
+  requiere pulsar «Importar y sustituir». Un archivo inválido conserva el montaje
+  actual; un archivo estructuralmente válido puede contener incompatibilidades.
+- En móvil, la escena, el catálogo y el montaje se organizan en vertical. La cámara
+  ajusta el encuadre al monitor, al despiece y al tamaño de la pantalla.
+
+## Archivos y aprendizaje
+
+El JSON usa `format: "pcsim3d"`, `version: 1` y `build` con `items`, `video` y
+`notes`. Sólo acepta IDs del catálogo y límites por categoría. Los UID, precios
+y especificaciones externos no se importan. Los guardados locales anteriores,
+que sólo tenían `items`, siguen siendo compatibles.
+
+[Ejemplo importable](docs/example-build.json) ·
+[Guía de actividades, evaluación y uso de IA](docs/teaching-guide.md) ·
+[Fuentes y límites del catálogo](docs/catalog-sources.md)
+
+Los archivos y sus explicaciones son editables: no prueban autoría. Para evaluar
+aprendizaje, combina el montaje con justificación, diagnóstico de errores y una
+modificación o explicación breve en directo.
+
+## Comprobaciones de desarrollo
+
+La web no necesita Node para publicarse. Para las pruebas, usa Node.js 24 o superior:
+`npm test` (sin instalar dependencias). Se cubren JSON, persistencia, conexiones
+de pantalla, PCIe y combinaciones CPU/placa/RAM. GitHub Actions ejecuta las pruebas
+en cada push o pull request. La revisión visual WebGL se hace en navegador.
 
 ## Estructura de los archivos
 
@@ -46,6 +80,9 @@ en `index.html`**: hace falta servirla desde un servidor web (aunque sea local).
 | `js/scene/materials.js` | Materiales y texturas. Se dibujan con canvas al arrancar (circuitos, rejillas, etiquetas), así que no hay ninguna imagen que descargar. |
 | `js/scene/scene.js` | Cámara, luces, reflejos y render. |
 | `js/store.js` | Estado del montaje y guardado en localStorage. |
+| `js/build-file.js` | Validación y formato JSON portable. |
+| `js/data/connectivity.js` | Puertos, ranuras y asignación de tarjetas PCIe. |
+| `js/learning.js` | Pistas progresivas para resolver errores. |
 | `js/main.js` | Interfaz: menús, lista, diálogos. |
 | `vendor/` | Three.js (licencia MIT), incluido para funcionar sin internet. |
 
@@ -54,3 +91,7 @@ en `index.html`**: hace falta servirla desde un servidor web (aunque sea local).
 Basta con copiar una entrada de `js/data/catalog.js` y cambiar sus datos: la ficha del
 menú, las reglas de compatibilidad y el dibujo en 3D se generan automáticamente a
 partir de las especificaciones.
+
+Una nueva placa debe declarar también `videoPorts` y `pcieSlots` en sus
+especificaciones o en `js/data/connectivity.js`. Cada ranura indica `size`
+(tamaño físico), `lanes` (ancho eléctrico) e `index` (posición aproximada en 3D).

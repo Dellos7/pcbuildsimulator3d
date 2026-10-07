@@ -7,6 +7,8 @@ import { CATEGORIES, CAT, COMPONENTS, BY_ID, SPEC_FIELDS, shortSummary, searchTe
 import { checkBuild, estimatePower, totalPrice } from './compat.js';
 import * as store from './store.js';
 import { initScene } from './scene/scene.js';
+import { parseBuildFile, exportBuildFile, MAX_FILE_BYTES } from './build-file.js';
+import { learningHint } from './learning.js';
 
 const $ = sel => document.querySelector(sel);
 const el = (tag, cls, text) => {
@@ -17,11 +19,16 @@ const el = (tag, cls, text) => {
 };
 
 const stage = $('#stage');
-const scene = initScene($('#canvas'), {
+let scene;
+try { scene = initScene($('#canvas'), {
   onHover: (info, ev) => showTooltip(info, ev),
   onHoverMove: ev => moveTooltip(ev),
   onSelect: uid => selectItem(uid, true)
-});
+}); } catch (error) {
+  console.error('No se pudo iniciar WebGL:', error);
+  $('#canvas').append(el('p', 'webgl-error', 'No se pudo iniciar la vista 3D. Activa la aceleración gráfica o prueba otro navegador. Puedes seguir usando las fichas y la comprobación.'));
+  scene = { render() {}, setSelected() {}, setExplode() {}, setHidden() {}, resetCamera() {} };
+}
 
 let selectedUid = null;
 let flagged = new Set();     // nombres de piezas señaladas por la última comprobación
@@ -173,6 +180,12 @@ function renderBuildList(build) {
       row.append(txt, eye, del);
       if (oculta) row.classList.add('hiddenpart');
       row.addEventListener('click', () => selectItem(item.uid));
+      row.tabIndex = 0;
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', 'Seleccionar ' + comp.name);
+      row.addEventListener('keydown', ev => {
+        if (ev.target === row && ['Enter', ' '].includes(ev.key)) { ev.preventDefault(); selectItem(item.uid); }
+      });
       root.append(row);
     }
   }
@@ -246,9 +259,9 @@ $('#btn-check').addEventListener('click', () => {
   const body = el('div');
   const v = el('div', 'verdict ' + (result.errors ? 'bad' : result.warnings ? 'mid' : 'good'));
   if (result.errors) {
-    v.append(document.createTextNode('❌ Hay ' + result.errors + ' incompatibilidad' + (result.errors > 1 ? 'es' : '') + ' que impiden montar este ordenador.'));
+    v.append(document.createTextNode('❌ Hay ' + result.errors + ' incompatibilidad' + (result.errors > 1 ? 'es' : '') + ' que debes resolver antes de utilizar este equipo.'));
   } else if (result.warnings) {
-    v.append(document.createTextNode('⚠️ El montaje encaja, pero hay ' + result.warnings + ' aviso' + (result.warnings > 1 ? 's' : '') + ' que conviene revisar.'));
+    v.append(document.createTextNode('⚠️ No se han detectado incompatibilidades, pero hay ' + result.warnings + ' aviso' + (result.warnings > 1 ? 's' : '') + ' que debes revisar.'));
   } else {
     v.append(document.createTextNode('✅ ¡Montaje compatible! Todas las piezas encajan entre sí.'));
   }
@@ -268,6 +281,12 @@ $('#btn-check').addEventListener('click', () => {
     const h = el('h4');
     h.append(el('span', null, icon), el('span', null, i.title));
     card.append(h, el('p', null, i.detail));
+    if (i.level === 'error' || i.level === 'warning') {
+      const hint = learningHint(i.title);
+      const help = el('details', 'learning-hint');
+      help.append(el('summary', null, 'Pista para resolverlo'), el('p', null, hint));
+      card.append(help);
+    }
     if (i.parts.length) {
       const p = el('div', 'parts');
       [...new Set(i.parts)].forEach(name => p.append(el('span', null, name)));
@@ -288,6 +307,8 @@ $('#btn-check').addEventListener('click', () => {
             el('td', null, result.power.total + ' W'));
   table.append(tr);
   body.append(table);
+  body.append(el('p', 'hint-power', 'La potencia de la torre es una estimación didáctica, no una medición: el TDP y los límites de potencia no equivalen al consumo en todo momento.'));
+  if (result.power.external) body.append(el('p', null, 'Pantalla: unos ' + result.power.external + ' W adicionales en el enchufe, fuera de la fuente de la torre.'));
 
   openModal('Resultado de la comprobación', body, [{ label: 'Cerrar', cls: 'btn-primary', onClick: c => c() }]);
 });
@@ -316,12 +337,20 @@ $('#btn-save').addEventListener('click', () => {
     { label: 'Guardar', cls: 'btn-primary', onClick: c => {
         const name = input.value.trim();
         if (!name) return;
-        store.saveNamed(name);
-        c();
-        toast('Guardado como "' + name + '"');
+        const save = () => {
+          const result = store.saveNamed(name);
+          if (!result.ok) return toast(result.reason, 'warn');
+          modal.close(); toast('Guardado como "' + name + '"');
+        };
+        if (store.listSaved().some(s => s.name === name)) {
+          const warning = el('p', null, 'Ya existe «' + name + '». ¿Quieres sustituirlo por el montaje actual?');
+          openModal('Sustituir montaje guardado', warning, [{ label: 'Cancelar', onClick: close => close() }, { label: 'Sustituir', cls: 'btn-primary', onClick: save }]);
+        } else save();
       } }
   ]);
   input.select();
+  input.maxLength = 120;
+  input.setAttribute('aria-label', 'Nombre del montaje');
   input.addEventListener('keydown', ev => {
     if (ev.key === 'Enter') { ev.preventDefault(); $('#modal-foot').lastChild.click(); }
   });
@@ -343,13 +372,14 @@ $('#btn-open').addEventListener('click', () => {
                   new Date(s.date).toLocaleString('es-ES')));
     const load = el('button', 'btn btn-primary btn-small', 'Abrir');
     load.addEventListener('click', () => {
-      store.loadNamed(s.name);
+      if (!store.loadNamed(s.name)) return toast('No se pudo abrir ese montaje.', 'warn');
       modal.close();
       toast('Montaje "' + s.name + '" cargado');
     });
     const del = el('button', 'btn btn-danger btn-small', 'Borrar');
     del.addEventListener('click', () => {
-      store.deleteNamed(s.name);
+      const result = store.deleteNamed(s.name);
+      if (!result.ok) return toast(result.reason, 'warn');
       row.remove();
       toast('Montaje "' + s.name + '" borrado');
     });
@@ -357,6 +387,80 @@ $('#btn-open').addEventListener('click', () => {
     body.append(row);
   }
   openModal('Montajes guardados', body, [{ label: 'Cerrar', onClick: c => c() }]);
+});
+
+// -------------------------------------------------- archivos y reflexión
+$('#btn-export').addEventListener('click', () => {
+  if (!store.getBuild().items.length) return toast('El montaje está vacío', 'warn');
+  const url = URL.createObjectURL(new Blob([exportBuildFile(store.getBuild())], { type: 'application/json' }));
+  const link = el('a');
+  link.href = url;
+  link.download = 'montaje-pc-' + new Date().toISOString().slice(0, 10) + '.json';
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast('Montaje exportado. Incluye tus explicaciones de «Mis decisiones».');
+});
+
+$('#btn-import').addEventListener('click', () => {
+  const body = el('div');
+  body.append(el('p', null, 'Selecciona un montaje JSON. Podrás revisar sus piezas antes de sustituir el montaje actual.'));
+  const input = el('input'); input.type = 'file'; input.accept = '.json,application/json';
+  input.setAttribute('aria-label', 'Archivo de montaje JSON');
+  body.append(input);
+  const status = el('p'); status.setAttribute('role', 'status'); body.append(status);
+  let draft = null;
+  let readId = 0;
+  openModal('Importar montaje', body, [
+    { label: 'Cancelar', onClick: close => close() },
+    { label: 'Importar y sustituir', cls: 'btn-primary', onClick: close => {
+      if (!draft) return;
+      store.replaceBuild(draft); close(); toast('Montaje importado. Revisa sus decisiones y comprueba la compatibilidad.');
+    } }
+  ]);
+  const importButton = $('#modal-foot').lastChild; importButton.disabled = true;
+  input.addEventListener('change', async () => {
+    const currentRead = ++readId;
+    draft = null; importButton.disabled = true;
+    body.querySelector('.import-preview')?.remove();
+    const file = input.files[0]; if (!file) { status.textContent = ''; return; }
+    try {
+      if (file.size > MAX_FILE_BYTES) throw new Error('El archivo supera los 128 KB.');
+      const candidate = parseBuildFile(await file.text());
+      if (currentRead !== readId || !modal.open || !input.isConnected) return;
+      draft = candidate;
+      status.textContent = candidate.items.length + ' piezas · ' + totalPrice(candidate).toLocaleString('es-ES') + ' €. Se conservarán las elecciones de vídeo y las explicaciones del archivo.';
+      const preview = el('div', 'import-preview');
+      const list = el('ul');
+      candidate.items.forEach(i => list.append(el('li', null, BY_ID[i.compId].name)));
+      preview.append(list, el('p', null, 'Un archivo válido puede contener un montaje incompatible: tendrás que comprobarlo y explicar las correcciones.'));
+      body.append(preview); importButton.disabled = false;
+    } catch (error) { if (currentRead === readId) status.textContent = error.message; }
+  });
+});
+
+$('#btn-notes').addEventListener('click', () => {
+  const body = el('div');
+  body.append(el('p', null, 'Explica tus elecciones con tus palabras. Estos textos se guardan y viajan con el JSON; puedes completarlos durante el ejercicio.'));
+  const inputs = {};
+  for (const [key, label] of [
+    ['purpose', '¿Para qué se utilizará el equipo y qué presupuesto tienes?'],
+    ['reasoning', '¿Por qué elegiste estas piezas? Justifica socket, RAM y conexión de pantalla.'],
+    ['correction', '¿Qué error encontraste, por qué ocurría y cómo lo resolviste?']
+  ]) {
+    const field = el('label', 'note-field', label), input = el('textarea');
+    input.rows = 3; input.maxLength = 2000; input.value = store.getBuild().notes[key];
+    field.append(input); body.append(field); inputs[key] = input;
+  }
+  openModal('Mis decisiones', body, [{ label: 'Cancelar', onClick: close => close() }, {
+    label: 'Guardar explicaciones', cls: 'btn-primary', onClick: close => {
+      store.setNotes(Object.fromEntries(Object.entries(inputs).map(([k, input]) => [k, input.value])));
+      close(); toast('Explicaciones incorporadas al montaje.');
+    }
+  }]);
+});
+
+for (const id of ['video-source', 'video-port']) $('#' + id).addEventListener('change', () => {
+  store.setVideo({ source: $('#video-source').value, port: $('#video-port').value });
 });
 
 $('#btn-reset').addEventListener('click', () => {
@@ -392,9 +496,11 @@ $('#btn-help').addEventListener('click', () => {
       <li>Potencia y conectores de la fuente de alimentación.</li>
       <li>Ranuras M.2, puertos SATA, bahías de disco y de 5,25", huecos de ventilador…</li>
       <li>Si el equipo tendrá salida de vídeo (gráfica dedicada o integrada en la CPU).</li>
+      <li>Si el cable elegido coincide con la salida de vídeo y con la entrada de la pantalla. Las salidas de la placa necesitan una CPU con gráfica integrada.</li>
     </ul>
     <p><b>Importante:</b> el simulador <u>no avisa</u> mientras montas. Primero razona tú si las piezas
-    encajan y después comprueba el resultado.</p>`;
+    encajan y después comprueba el resultado. Abre las pistas si necesitas ayuda para corregir un error.</p>
+    <p>Usa <b>Mis decisiones</b> para justificar lo que haces. <b>Exportar</b> e <b>Importar</b> permiten llevar piezas, conexión y explicaciones en un archivo JSON.</p>`;
   openModal('Cómo funciona el simulador', body, [{ label: 'Entendido', cls: 'btn-primary', onClick: c => c() }]);
 });
 
@@ -407,7 +513,21 @@ $('#btn-camera').addEventListener('click', () => scene.resetCamera());
 // ==========================================================================
 buildCatalogMenu();
 
-store.subscribe(build => {
+let storageWarningShown = false;
+store.subscribe((build, change) => {
+  if (!change.persisted && !storageWarningShown) {
+    storageWarningShown = true; toast('El navegador no puede conservar los cambios. Exporta tu montaje a JSON.', 'warn');
+  }
+  if (change.kind === 'notes') return;
+  if (change.kind === 'visibility') {
+    renderBuildList(build); scene.setHidden(store.getHidden()); return;
+  }
+  // Toda modificación de piezas o conexiones invalida el resultado anterior.
+  flagged = new Set(); $('#check-summary').hidden = true;
+  $('#video-settings').hidden = !build.items.some(i => BY_ID[i.compId].cat === 'monitor');
+  $('#video-source').value = build.video.source;
+  $('#video-port').value = build.video.port;
+  if (change.kind === 'video') { renderBuildList(build); return; }
   // Contadores del menú lateral
   for (const cat of CATEGORIES) {
     const n = build.items.filter(i => BY_ID[i.compId].cat === cat.id).length;
@@ -429,4 +549,5 @@ store.subscribe(build => {
   scene.setSelected(selectedUid);
 });
 
-store.restoreCurrent();
+const restored = store.restoreCurrent();
+if (!restored.ok) toast(restored.reason, 'warn');

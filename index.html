@@ -20,6 +20,9 @@
     <button id="btn-check" class="btn btn-primary">✔️ Comprobar compatibilidad</button>
     <button id="btn-save" class="btn">💾 Guardar</button>
     <button id="btn-open" class="btn">📂 Abrir</button>
+    <button id="btn-export" class="btn">⬇ Exportar</button>
+    <button id="btn-import" class="btn">⬆ Importar</button>
+    <button id="btn-notes" class="btn">✍ Mis decisiones</button>
     <button id="btn-reset" class="btn btn-danger">🗑️ Reiniciar</button>
     <button id="btn-help" class="btn btn-ghost" title="Cómo se usa">❓</button>
   </nav>
@@ -31,7 +34,7 @@
   <aside class="panel panel-left">
     <div class="panel-head">
       <h2>Componentes</h2>
-      <input id="search" type="search" placeholder="Buscar (socket, DDR5, ATX…)" autocomplete="off">
+      <input id="search" type="search" aria-label="Buscar componentes" placeholder="Buscar (socket, DDR5, HDMI…)" autocomplete="off">
     </div>
     <div id="catalog" class="scroll"></div>
     <p class="hint">Arrastra una pieza al centro, o pulsa <b>+</b> para montarla.</p>
@@ -72,6 +75,24 @@
       </div>
     </div>
     <div id="buildlist" class="scroll"></div>
+    <div id="video-settings" class="video-settings" hidden>
+      <h3>Conexión de pantalla</h3>
+      <label for="video-source">¿Dónde conectas el cable?</label>
+      <select id="video-source">
+        <option value="">Elige una salida</option>
+        <option value="motherboard">Placa base</option>
+        <option value="gpu">Tarjeta gráfica</option>
+      </select>
+      <label for="video-port">Cable de vídeo (sin adaptador)</label>
+      <select id="video-port">
+        <option value="">Elige un cable</option>
+        <option>HDMI</option>
+        <option>DisplayPort</option>
+        <option value="VGA">D-SUB / VGA</option>
+        <option>DVI-D</option>
+      </select>
+      <p>Compara entradas y salidas en las fichas. Después comprueba tu elección.</p>
+    </div>
     <div id="check-summary" class="check-summary" hidden></div>
   </aside>
 
@@ -81,7 +102,7 @@
 <dialog id="modal" class="modal">
   <div class="modal-head">
     <h3 id="modal-title"></h3>
-    <button class="btn btn-ghost" id="modal-close">✕</button>
+    <button class="btn btn-ghost" id="modal-close" aria-label="Cerrar diálogo">✕</button>
   </div>
   <div class="modal-body" id="modal-body"></div>
   <div class="modal-foot" id="modal-foot"></div>

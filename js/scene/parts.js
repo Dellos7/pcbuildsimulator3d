@@ -20,6 +20,7 @@
 
 import * as THREE from '../../vendor/three.module.min.js';
 import * as M from './materials.js';
+import { describePorts } from '../data/connectivity.js';
 
 const DEFAULT_CASE = { w: 22, h: 45, d: 45 };
 const CASE_X0 = -2.5;          // cara interior del lateral por donde van los cables
@@ -447,7 +448,7 @@ const builders = {
 
     // Panel de puertos traseros.
     bx(g, X, L.io.topY - L.io.h, rearZ - 0.75, 4.4, L.io.h, 0.75, plastic('#1b1f26'), { radius: 0.1 });
-    decal(g, '-z', X + 2.2, L.io.centerY, rearZ - 0.78, 4.4, L.io.h, M.rearIoTexture(s.wifi));
+    decal(g, '-z', X + 2.2, L.io.centerY, rearZ - 0.78, 4.4, L.io.h, M.rearIoTexture(s.wifi, s.videoPorts));
 
     // Zócalo del procesador: la diferencia entre AM4/AM5 y LGA se nota.
     bx(g, X, cy - 2.6, cz - 2.6, 0.45, 5.2, 5.2, plastic('#15181d'), { radius: 0.1 });
@@ -490,11 +491,9 @@ const builders = {
     // ---- Ranuras PCIe -------------------------------------------------------
     // Las x16 son largas, negras y con blindaje metálico; las x1, cortas y
     // claras. Así se distinguen de un vistazo y se ve cuáles tapa la gráfica.
-    let big = s.pcieX16, small = s.pcieSmall;
-    for (let i = 0; i < L.slotCount && (big > 0 || small > 0); i++) {
-      const isBig = ((i === 0 || i === 3) && big > 0) || (small === 0 && big > 0);
-      if (isBig) big--; else small--;
-      const len = isBig ? 8.9 : 2.5;
+    for (const slot of s.pcieSlots) {
+      const i = slot.index, isBig = slot.size === 16;
+      const len = isBig ? 8.9 : slot.size === 4 ? 4 : 2.5;
       const y = L.slotY(i) - 0.575;
       bx(g, X, y, rearZ + 3.4, 0.7, 1.15, len, plastic(isBig ? '#1b1f25' : '#9aa3ad'), { radius: 0.07 });
       // Canal interior más claro: se ve que es un conector hembra.
@@ -1012,6 +1011,33 @@ const builders = {
       }
     }
     g.userData.explode = new THREE.Vector3(0.6, -1.6, 0);
+    return g;
+  },
+
+  // ------------------------------------------------------------ MONITOR
+  monitor(c, L) {
+    const g = new THREE.Group();
+    const ratio = c.specs.resolution === '1280 × 1024' ? 5 / 4 : 16 / 9;
+    const width = c.specs.inches * 2.54 * ratio / Math.sqrt(ratio * ratio + 1);
+    const height = width / ratio;
+    const x = L.caseCenterX, z = L.box.d + width / 2 + 7, y = 12 + height / 2;
+    bx(g, x - 1, 0.4, z - 9, 13, 0.7, 18, plastic('#252c36'), { radius: 0.35 });
+    bx(g, x, 1.1, z - 1.2, 2, 15, 2.4, painted('#3c4652'), { radius: 0.3 });
+    bx(g, x - 0.7, 12, z - width / 2, 1.6, height, width, plastic(c.color), { radius: 0.35 });
+    decal(g, '+x', x + 0.92, y, z, width - 1.6, height - 1.6,
+      M.stickerTexture('screen:' + c.id, 800, 450, '#102744', [
+        { text: 'MI EQUIPO', size: 0.09, y: 0.3, color: '#d9ecff' },
+        { text: c.specs.resolution, size: 0.07, y: 0.46, color: '#81c5ff' },
+        { text: describePorts(c.specs.videoPorts), size: 0.065, y: 0.66, color: '#ffffff' }
+      ]));
+    c.specs.videoPorts.forEach((p, i) => {
+      bx(g, x - 0.92, 14, z - 5 + i * 3.2, 0.25, 1, 2.6, plastic(p === 'VGA' ? '#2865b3' : '#10151c'), { radius: 0.1 });
+    });
+    decal(g, '-x', x - 0.95, y + 2, z, width * 0.7, 6,
+      M.stickerTexture('monitor-ports:' + c.id, 600, 100, '#202833', [
+        { text: describePorts(c.specs.videoPorts), size: 0.3, y: 0.65, color: '#ffffff' }
+      ]));
+    g.userData.explode = new THREE.Vector3(0, 0, 0.5);
     return g;
   },
 

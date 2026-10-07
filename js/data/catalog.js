@@ -5,6 +5,8 @@
 // Medidas: longitudes en mm, dimensiones de caja en cm, potencia en W.
 // ---------------------------------------------------------------------------
 
+import { BOARD_CONNECTIONS, describePorts, describeSlots } from './connectivity.js';
+
 export const CATEGORIES = [
   { id: 'case',        name: 'Caja / Torre',           icon: '🗄️', max: 1,  color: '#8a93a5' },
   { id: 'motherboard', name: 'Placa base',             icon: '🧩', max: 1,  color: '#2f6b3f' },
@@ -16,7 +18,8 @@ export const CATEGORIES = [
   { id: 'psu',         name: 'Fuente de alimentación', icon: '🔌', max: 1,  color: '#7c8085' },
   { id: 'fan',         name: 'Ventiladores de caja',   icon: '🌀', max: 10, color: '#6b7280' },
   { id: 'expansion',   name: 'Tarjetas de expansión',  icon: '📶', max: 4,  color: '#2f4858' },
-  { id: 'optical',     name: 'Unidad óptica',          icon: '💿', max: 1,  color: '#4b5563' }
+  { id: 'optical',     name: 'Unidad óptica',          icon: '💿', max: 1,  color: '#4b5563' },
+  { id: 'monitor',     name: 'Monitor / Pantalla',     icon: '🖥️', max: 1,  color: '#384b65' }
 ];
 
 export const CAT = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
@@ -48,7 +51,9 @@ export const SPEC_FIELDS = {
     ['m2Slots', 'Ranuras M.2', v => v],
     ['sataPorts', 'Puertos SATA', v => v],
     ['pcieX16', 'Ranuras PCIe x16', v => v],
-    ['pcieSmall', 'Ranuras PCIe x1/x4', v => v],
+    ['pcieSlots', 'Ranuras PCIe (física y eléctrica)', describeSlots],
+    ['legacyPci', 'Ranuras PCI antiguas (no PCIe)', v => v],
+    ['videoPorts', 'Salidas de vídeo (requieren CPU con gráfica)', describePorts],
     ['pcieVer', 'Versión PCIe', v => v],
     ['eps', 'Conectores EPS de 8 pines', v => v],
     ['wifi', 'Wi-Fi integrado', v => v ? 'Sí' : 'No']
@@ -86,7 +91,8 @@ export const SPEC_FIELDS = {
     ['slots', 'Ranuras que ocupa', v => v],
     ['tdp', 'Consumo', v => v + ' W'],
     ['pcieVer', 'Interfaz', v => 'PCIe ' + v + ' x16'],
-    ['power', 'Conectores de alimentación', v => describePower(v)]
+    ['power', 'Conectores de alimentación', v => describePower(v)],
+    ['videoPorts', 'Salidas de vídeo', describePorts]
   ],
   storage: [
     ['kind', 'Tipo', v => KIND_LABEL[v]],
@@ -113,6 +119,13 @@ export const SPEC_FIELDS = {
   expansion: [
     ['kind', 'Función', v => v],
     ['slotType', 'Ranura necesaria', v => v]
+  ],
+  monitor: [
+    ['inches', 'Diagonal', v => v + ' pulgadas'],
+    ['resolution', 'Resolución', v => v],
+    ['refreshHz', 'Frecuencia', v => v + ' Hz'],
+    ['videoPorts', 'Entradas de vídeo', describePorts],
+    ['watts', 'Consumo externo a la torre', v => v + ' W']
   ],
   optical: [
     ['kind', 'Tipo', v => v],
@@ -347,8 +360,30 @@ export const COMPONENTS = [
   { id: 'odd-dvd', cat: 'optical', name: 'LG GH24NSD5 (grabadora DVD)', brand: 'LG', price: 22, color: '#3b414a',
     specs: { kind: 'Grabadora de DVD ±RW', interface: 'SATA', format: 'Bahía 5,25"' } },
   { id: 'odd-bluray', cat: 'optical', name: 'ASUS BW-16D1HT (grabadora Blu-ray)', brand: 'ASUS', price: 89, color: '#333941',
-    specs: { kind: 'Grabadora de Blu-ray', interface: 'SATA', format: 'Bahía 5,25"' } }
+    specs: { kind: 'Grabadora de Blu-ray', interface: 'SATA', format: 'Bahía 5,25"' } },
+
+  // Perfiles genéricos para comparar conectores; precios orientativos, no modelos comerciales.
+  { id: 'monitor-vga', cat: 'monitor', name: 'Pantalla de aula 19" — sólo VGA', brand: 'Genérica', price: 60, color: '#303844',
+    specs: { inches: 19, resolution: '1280 × 1024', refreshHz: 60, videoPorts: ['VGA'], watts: 20 } },
+  { id: 'monitor-hdmi', cat: 'monitor', name: 'Pantalla Full HD 24" — HDMI', brand: 'Genérica', price: 110, color: '#303844',
+    specs: { inches: 24, resolution: '1920 × 1080', refreshHz: 75, videoPorts: ['HDMI'], watts: 25 } },
+  { id: 'monitor-dp', cat: 'monitor', name: 'Pantalla QHD 27" — DisplayPort', brand: 'Genérica', price: 200, color: '#303844',
+    specs: { inches: 27, resolution: '2560 × 1440', refreshHz: 144, videoPorts: ['DisplayPort'], watts: 40 } },
+  { id: 'monitor-multi', cat: 'monitor', name: 'Pantalla Full HD 24" — HDMI / DP / VGA', brand: 'Genérica', price: 150, color: '#303844',
+    specs: { inches: 24, resolution: '1920 × 1080', refreshHz: 60, videoPorts: ['HDMI', 'DisplayPort', 'VGA'], watts: 25 } },
+  { id: 'monitor-dvi', cat: 'monitor', name: 'Pantalla de oficina 22" — DVI-D / VGA', brand: 'Genérica', price: 80, color: '#303844',
+    specs: { inches: 22, resolution: '1920 × 1080', refreshHz: 60, videoPorts: ['DVI-D', 'VGA'], watts: 22 } }
 ];
+
+for (const c of COMPONENTS) {
+  if (c.cat === 'motherboard') {
+    Object.assign(c.specs, BOARD_CONNECTIONS[c.id]);
+    c.specs.pcieX16 = c.specs.pcieSlots.filter(s => s.size === 16).length;
+    c.specs.pcieSmall = c.specs.pcieSlots.filter(s => s.size < 16).length;
+  }
+  // Perfil común HDMI/DP para las GPU: comprobar la variante exacta en una compra real.
+  if (c.cat === 'gpu') c.specs.videoPorts ??= ['HDMI', 'DisplayPort'];
+}
 
 export const BY_ID = Object.fromEntries(COMPONENTS.map(c => [c.id, c]));
 
@@ -366,6 +401,7 @@ export function shortSummary(c) {
     case 'psu': return s.watts + ' W · ' + s.efficiency;
     case 'fan': return s.sizeMm + ' mm' + (s.rgb ? ' · RGB' : '');
     case 'expansion': return s.slotType;
+    case 'monitor': return s.inches + '" · ' + describePorts(s.videoPorts);
     case 'optical': return s.kind;
     default: return '';
   }
@@ -374,5 +410,5 @@ export function shortSummary(c) {
 /** Palabras por las que se puede buscar una pieza en el menú lateral. */
 export function searchText(c) {
   return (c.name + ' ' + c.brand + ' ' + CAT[c.cat].name + ' ' + shortSummary(c) +
-          ' ' + Object.values(c.specs).join(' ')).toLowerCase();
+          ' ' + JSON.stringify(c.specs) + (c.specs.videoPorts?.includes('VGA') ? ' D-SUB' : '')).toLowerCase();
 }

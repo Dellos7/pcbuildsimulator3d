@@ -1,0 +1,19 @@
+{
+  "format": "pcsim3d",
+  "version": 1,
+  "build": {
+    "items": [
+      { "compId": "case-h5flow" },
+      { "compId": "mb-h610m" },
+      { "compId": "cpu-12400" },
+      { "compId": "ram-lpx8-3200" },
+      { "compId": "ram-lpx8-3200" },
+      { "compId": "ssd-mx500-1t" },
+      { "compId": "psu-cx550" },
+      { "compId": "fan-p12" },
+      { "compId": "monitor-hdmi" }
+    ],
+    "video": { "source": "motherboard", "port": "HDMI" },
+    "notes": { "purpose": "Ejemplo de equipo de aula", "reasoning": "", "correction": "" }
+  }
+}
